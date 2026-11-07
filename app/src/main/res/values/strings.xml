@@ -73,4 +73,19 @@
     <string name="pause">Pause</string>
     <string name="resume">Resume</string>
     <string name="volume">Volume</string>
+
+    <!-- Fork additions -->
+    <string name="stop">Stop</string>
+    <string name="preview_mode_toast">Nessun audio di chiamata disponibile: riproduzione in anteprima</string>
+    <string name="view_intent_failed">Impossibile aprire il file ricevuto</string>
+    <string name="notification_playback_route">Routing: %1$s</string>
+    <string name="debug_title">EchoCast Diagnostics</string>
+    <string name="debug_refresh">Refresh</string>
+    <string name="debug_copy">Copy</string>
+    <string name="debug_save">Save log</string>
+    <string name="debug_clear">Clear log</string>
+    <string name="debug_copied">Copiato negli appunti</string>
+    <string name="debug_toggle_verbose">Verbose log</string>
+    <string name="debug_toggle_incall_music">Sperimentale incall_music</string>
+    <string name="elevenlabs_key_ok">Chiave ElevenLabs valida</string>
 </resources>

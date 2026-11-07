@@ -117,9 +117,9 @@ class AudioAdapter(
                 if (currentlyPlayingId == item.id) {
                     currentlyPlayingId = null
                     binding.btnPlayPause.setIconResource(android.R.drawable.ic_media_play)
-                    val stopIntent = android.content.Intent(binding.root.context, EchoCastInCallService::class.java).apply {
-                        action = "STOP_AUDIO"
-                        putExtra("audio_id", item.id)
+                    val stopIntent = android.content.Intent(binding.root.context, PlaybackService::class.java).apply {
+                        action = PlaybackService.ACTION_STOP
+                        putExtra(PlaybackService.EXTRA_AUDIO_ID, item.id)
                     }
                     binding.root.context.startService(stopIntent)
                 } else {

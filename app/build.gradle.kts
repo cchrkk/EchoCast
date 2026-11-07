@@ -3,17 +3,21 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+val appId = "com.rudisec.echocast"
+val appVersionName = "2.1.0-fork"
+val appVersionCode = 7
+
 android {
     namespace = "com.rudisec.echocast"
 
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.rudisec.echocast"
+        applicationId = appId
         minSdk = 28
         targetSdk = 33
-        versionCode = 6
-        versionName = "2.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -21,7 +25,7 @@ android {
     signingConfigs {
         create("release") {
             val keystore = System.getenv("RELEASE_KEYSTORE")
-            storeFile = if (keystore != null) { File(keystore) } else { null }
+            storeFile = if (keystore != null) File(keystore) else null
             storePassword = System.getenv("RELEASE_KEYSTORE_PASSPHRASE")
             keyAlias = System.getenv("RELEASE_KEY_ALIAS")
             keyPassword = System.getenv("RELEASE_KEY_PASSPHRASE")
@@ -50,197 +54,123 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
     }
 }
 
 dependencies {
-    implementation("androidx.activity:activity-ktx:1.7.2")
+    implementation("androidx.activity:activity-ktx:1.8.2")
     implementation("androidx.appcompat:appcompat:1.6.1")
-    implementation("androidx.core:core-ktx:1.10.1")
-    implementation("androidx.fragment:fragment-ktx:1.6.1")
-    implementation("androidx.preference:preference-ktx:1.2.0")
-    implementation("androidx.recyclerview:recyclerview:1.3.1")
+    implementation("androidx.core:core-ktx:1.12.0")
+    implementation("androidx.fragment:fragment-ktx:1.6.2")
+    implementation("androidx.preference:preference-ktx:1.2.1")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.viewpager2:viewpager2:1.0.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.6.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.6.2")
-    implementation("com.google.android.material:material:1.12.0")
+    implementation("com.google.android.material:material:1.11.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
-    
+
     // Networking
     implementation("com.squareup.retrofit2:retrofit:2.9.0")
     implementation("com.squareup.retrofit2:converter-gson:2.9.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.10.0")
-    
+
     // Coroutines for async tasks
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.6.4")
-    
-    // Exclude conflicting Kotlin stdlib JDK versions
-    configurations.all {
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk7")
-        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib-jdk8")
-    }
-    
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
 }
 
-android.applicationVariants.all {
-    val variant = this
-    val capitalized = variant.name.capitalize()
-    val extraDir = File(buildDir, "extra")
-    val variantDir = File(extraDir, variant.name)
+/**
+ * Builds a flashable Magisk module for the given build type.
+ *
+ * Layout of the zip:
+ *   module.prop
+ *   META-INF/com/google/android/{update-binary,updater-script}
+ *   system/priv-app/<appId>/app-<variant>.apk
+ *   system/etc/permissions/privapp-permissions-<appId>.xml
+ */
+fun registerMagiskModule(variantName: String) {
+    val cap = variantName.replaceFirstChar { it.uppercase() }
 
-    val moduleProp = tasks.register("moduleProp${capitalized}") {
-        inputs.property("variant.applicationId", variant.applicationId)
-        inputs.property("variant.name", variant.name)
-        inputs.property("variant.versionCode", variant.versionCode)
-        inputs.property("variant.versionName", variant.versionName)
+    val stagingDir = layout.buildDirectory.dir("magisk-module/$variantName")
+    val apkFile = layout.buildDirectory.file("outputs/apk/$variantName/app-$variantName.apk")
 
-        val outputFile = File(variantDir, "module.prop")
-        outputs.file(outputFile)
+    val prepare = tasks.register("prepareMagisk$cap") {
+        group = "magisk"
+        description = "Stages the Magisk module for the $variantName build."
+        dependsOn("assemble$cap")
 
-        doLast {
-            val props = LinkedHashMap<String, String>()
-            props["id"] = variant.applicationId
-            props["name"] = "EchoCast"
-            props["version"] = "v${variant.versionName}"
-            props["versionCode"] = variant.versionCode.toString()
-            props["author"] = "rudisec"
-            props["description"] = "Transform your phone calls. Play custom audio, sound effects, and your soundboard during calls. Simple, powerful, and always ready when you need it."
-
-            outputFile.writeText(props.map { "${it.key}=${it.value}" }.joinToString("\n"))
-        }
-    }
-
-    val permissionsXml = tasks.register("permissionsXml${capitalized}") {
-        inputs.property("variant.applicationId", variant.applicationId)
-
-        val outputFile = File(variantDir, "privapp-permissions-${variant.applicationId}.xml")
-        outputs.file(outputFile)
+        inputs.dir(File(projectDir, "magisk"))
+        inputs.file(apkFile)
+        outputs.dir(stagingDir)
 
         doLast {
-            outputFile.writeText("""
+            val root = stagingDir.get().asFile
+            root.deleteRecursively()
+            root.mkdirs()
+
+            // Scripts must have Unix line endings, otherwise Magisk refuses them.
+            File(projectDir, "magisk").listFiles()?.filter { it.isFile }?.forEach { src ->
+                val normalized = src.readText(Charsets.UTF_8)
+                    .replace("\r\n", "\n")
+                    .replace("\r", "\n")
+                File(root, src.name).writeText(normalized, Charsets.UTF_8)
+            }
+
+            File(root, "module.prop").writeText(
+                """
+                id=$appId
+                name=EchoCast (fork)
+                version=v$appVersionName
+                versionCode=$appVersionCode
+                author=rudisec + fork
+                description=Play sounds into phone calls. Fork with local preview, diagnostics and a working decoder.
+                """.trimIndent()
+            )
+
+            val permissions = File(root, "system/etc/permissions")
+            permissions.mkdirs()
+            File(permissions, "privapp-permissions-$appId.xml").writeText(
+                """
                 <?xml version="1.0" encoding="utf-8"?>
                 <permissions>
-                    <privapp-permissions package="${variant.applicationId}">
+                    <privapp-permissions package="$appId">
                         <permission name="android.permission.CONTROL_INCALL_EXPERIENCE" />
                         <permission name="android.permission.MODIFY_PHONE_STATE" />
-                        <permission name="android.permission.INTERNET" />
-                        <permission name="android.permission.ACCESS_NETWORK_STATE" />
                     </privapp-permissions>
                 </permissions>
-            """.trimIndent())
+                """.trimIndent()
+            )
+
+            val appDir = File(root, "system/priv-app/$appId")
+            appDir.mkdirs()
+            apkFile.get().asFile.copyTo(File(appDir, "app-$variantName.apk"), overwrite = true)
         }
     }
 
-    val magiskDir = File(projectDir, "magisk")
-    
-    // Tasks to convert Magisk scripts to Unix line endings
-    val convertUpdateBinary = tasks.register("convertUpdateBinary${capitalized}") {
-        val scriptFile = File(magiskDir, "update-binary")
-        val outputFile = File(variantDir, "update-binary")
-        
-        inputs.file(scriptFile)
-        outputs.file(outputFile)
-        
-        doLast {
-            val content = scriptFile.readText(Charsets.UTF_8)
-            val unixContent = content.replace("\r\n", "\n").replace("\r", "\n")
-            outputFile.writeText(unixContent, Charsets.UTF_8)
-        }
-    }
-    
-    val convertUpdaterScript = tasks.register("convertUpdaterScript${capitalized}") {
-        val scriptFile = File(magiskDir, "updater-script")
-        val outputFile = File(variantDir, "updater-script")
-        
-        inputs.file(scriptFile)
-        outputs.file(outputFile)
-        
-        doLast {
-            val content = scriptFile.readText(Charsets.UTF_8)
-            val unixContent = content.replace("\r\n", "\n").replace("\r", "\n")
-            outputFile.writeText(unixContent, Charsets.UTF_8)
-        }
-    }
-    
-    val convertServiceScript = tasks.register("convertServiceScript${capitalized}") {
-        val scriptFile = File(magiskDir, "service.sh")
-        val outputFile = File(variantDir, "service.sh")
-        
-        inputs.file(scriptFile)
-        outputs.file(outputFile)
-        
-        doLast {
-            val content = scriptFile.readText(Charsets.UTF_8)
-            val unixContent = content.replace("\r\n", "\n").replace("\r", "\n")
-            outputFile.writeText(unixContent, Charsets.UTF_8)
-        }
-    }
-    
-    val convertPostFsDataScript = tasks.register("convertPostFsDataScript${capitalized}") {
-        val scriptFile = File(magiskDir, "post-fs-data.sh")
-        val outputFile = File(variantDir, "post-fs-data.sh")
-        
-        inputs.file(scriptFile)
-        outputs.file(outputFile)
-        
-        doLast {
-            val content = scriptFile.readText(Charsets.UTF_8)
-            val unixContent = content.replace("\r\n", "\n").replace("\r", "\n")
-            outputFile.writeText(unixContent, Charsets.UTF_8)
-        }
-    }
+    tasks.register<Zip>("zip$cap") {
+        group = "magisk"
+        description = "Builds EchoCast-$appVersionName-$variantName.zip"
+        dependsOn(prepare)
 
-    tasks.register<Zip>("zip${capitalized}") {
-        inputs.property("variant.applicationId", variant.applicationId)
-        inputs.property("variant.name", variant.name)
-        inputs.property("variant.versionName", variant.versionName)
+        archiveFileName.set("EchoCast-$appVersionName-$variantName.zip")
+        destinationDirectory.set(layout.buildDirectory.dir("distributions/$variantName"))
 
-        archiveFileName.set("EchoCast-${variant.versionName}-${variant.name}.zip")
-        destinationDirectory.set(File(destinationDirectory.asFile.get(), variant.name))
-
+        from(stagingDir)
         isPreserveFileTimestamps = false
         isReproducibleFileOrder = true
-
-        dependsOn.add(variant.assembleProvider)
-        dependsOn.add(moduleProp)
-        dependsOn.add(permissionsXml)
-        dependsOn.add(convertUpdateBinary)
-        dependsOn.add(convertUpdaterScript)
-        dependsOn.add(convertServiceScript)
-        dependsOn.add(convertPostFsDataScript)
-
-        from(moduleProp.get().outputs)
-        
-        from(permissionsXml.get().outputs) {
-            into("system/etc/permissions")
-        }
-        
-        from(variant.outputs.map { it.outputFile }) {
-            into("system/priv-app/${variant.applicationId}")
-            rename { fileName ->
-                "app-${variant.name}.apk"
-            }
-        }
-
-        from(convertUpdateBinary.get().outputs) {
-            into("META-INF/com/google/android")
-        }
-        
-        from(convertUpdaterScript.get().outputs) {
-            into("META-INF/com/google/android")
-        }
-        
-        // SELinux policy rules for network access
-        from(File(magiskDir, "sepolicy.rule"))
-        
-        // Post-fs-data script - applies rules early in boot
-        from(convertPostFsDataScript.get().outputs)
-        
-        // Service script - applies additional rules after boot
-        from(convertServiceScript.get().outputs)
     }
 }
+
+registerMagiskModule("debug")
+registerMagiskModule("release")

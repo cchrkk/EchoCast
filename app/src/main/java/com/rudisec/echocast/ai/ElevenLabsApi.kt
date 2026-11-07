@@ -26,6 +26,15 @@ interface ElevenLabsApi {
         @Header("xi-api-key") apiKey: String
     ): VoicesListResponse
 
+    /**
+     * Same endpoint but keeps the HTTP response so callers can show the real
+     * status code and error body (the version above throws and hides both).
+     */
+    @GET("v1/voices")
+    suspend fun getVoicesResponse(
+        @Header("xi-api-key") apiKey: String
+    ): Response<VoicesListResponse>
+
     @DELETE("v1/voices/{voiceId}")
     suspend fun deleteVoice(
         @Header("xi-api-key") apiKey: String,

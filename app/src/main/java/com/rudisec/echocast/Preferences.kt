@@ -22,11 +22,13 @@ class Preferences(private val context: Context) {
         set(value) = prefs.edit { putString(PREF_SELECTED_VOICE_ID, value) }
 
     /**
-     * ElevenLabs API Key
+     * ElevenLabs API Key.
+     * Whitespace is stripped: pasting a key from a browser/notes app very often
+     * carries a trailing newline, which ElevenLabs rejects with 401.
      */
     var apiKey: String
-        get() = prefs.getString(PREF_API_KEY, "") ?: ""
-        set(key) = prefs.edit { putString(PREF_API_KEY, key) }
+        get() = (prefs.getString(PREF_API_KEY, "") ?: "").trim()
+        set(key) = prefs.edit { putString(PREF_API_KEY, key.replace(Regex("\\s+"), "")) }
 
     /**
      * Whether call audio playback is enabled
@@ -109,4 +111,18 @@ class Preferences(private val context: Context) {
     var minimaxSelectedVoiceName: String?
         get() = prefs.getString("minimax_selected_voice_name", null)
         set(value) = prefs.edit { putString("minimax_selected_voice_name", value) }
+
+    // ------------------------------------------------------------------ debug
+
+    /**
+     * Qualcomm-only experiment: some vendor HALs mix a media stream into the
+     * call uplink when this parameter is enabled during MODE_IN_CALL.
+     */
+    var experimentalIncallMusic: Boolean
+        get() = prefs.getBoolean("experimental_incall_music", false)
+        set(value) = prefs.edit { putBoolean("experimental_incall_music", value) }
+
+    var verboseLogging: Boolean
+        get() = prefs.getBoolean("verbose_logging", true)
+        set(value) = prefs.edit { putBoolean("verbose_logging", value) }
 }

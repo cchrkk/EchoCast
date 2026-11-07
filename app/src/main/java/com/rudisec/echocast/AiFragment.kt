@@ -330,32 +330,54 @@ class AiFragment : Fragment() {
                 updateElevenLabsApiKeyButton()
                 if (key.trim().isNotBlank()) {
                     Toast.makeText(requireContext(), "Validating...", Toast.LENGTH_SHORT).show()
+                    checkApiConnection(prefs.apiKey, announce = true)
                 }
             }
         )
     }
     
-    private fun checkApiConnection(apiKey: String) {
+    private fun checkApiConnection(apiKey: String, announce: Boolean = false) {
         if (apiKey.isBlank()) {
             binding.btnUploadSample.isEnabled = false
             binding.btnTrain.isEnabled = false
             binding.btnElevenLabsApiKey.backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(requireContext(), R.color.primary))
             return
         }
-        
+
         lifecycleScope.launch {
-            try {
-                api.getVoices(apiKey)
-                withContext(Dispatchers.Main) {
+            val result = runCatching { api.getVoicesResponse(apiKey) }
+            withContext(Dispatchers.Main) {
+                val response = result.getOrNull()
+                if (response != null && response.isSuccessful) {
+                    DebugLog.i("ElevenLabs", "key ok, ${response.body()?.voices?.size ?: 0} voices")
                     binding.btnUploadSample.isEnabled = true
                     binding.btnTrain.isEnabled = sampleUri != null
                     binding.btnElevenLabsApiKey.backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(requireContext(), R.color.success))
-                }
-            } catch (e: Exception) {
-                withContext(Dispatchers.Main) {
+                    if (announce) {
+                        Toast.makeText(requireContext(), getString(R.string.elevenlabs_key_ok), Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    val code = response?.code()
+                    val body = runCatching { response?.errorBody()?.string() }.getOrNull()
+                    val reason = result.exceptionOrNull()?.message
+                    val msg = buildString {
+                        append("ElevenLabs: ")
+                        when (code) {
+                            401 -> append("API key non valida (401)")
+                            403 -> append("accesso negato (403)")
+                            429 -> append("troppe richieste (429)")
+                            null -> append(reason ?: "errore di rete")
+                            else -> append("HTTP $code")
+                        }
+                        if (!body.isNullOrBlank()) append(" — ").append(body.take(200))
+                    }
+                    DebugLog.e("ElevenLabs", msg)
                     binding.btnUploadSample.isEnabled = false
                     binding.btnTrain.isEnabled = false
                     binding.btnElevenLabsApiKey.backgroundTintList = android.content.res.ColorStateList.valueOf(ContextCompat.getColor(requireContext(), R.color.primary))
+                    if (announce || code == 401 || code == 403) {
+                        Toast.makeText(requireContext(), msg, Toast.LENGTH_LONG).show()
+                    }
                 }
             }
         }

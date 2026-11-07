@@ -12,6 +12,49 @@ EchoCast is an Android application that plays multiple audio files to the other 
 
 ## ⚠️ Disclaimer
 
+## Fork notes (2.1.0-fork)
+
+This is a fork of [rudisec/EchoCast](https://github.com/rudisec/EchoCast) focused on
+making the audio path debuggable and actually working. Changes:
+
+* **Local preview.** Pressing play outside a call no longer fails: when no
+  `TYPE_TELEPHONY` output exists the sound is played through the speaker.
+* **Playback moved to its own service.** `EchoCastInCallService` is only bound by
+  Android when EchoCast is the *default phone app*; playback used to live there
+  and silently depended on that. It now runs in `PlaybackService`.
+* **Decoder fixed.** The `AudioTrack` is created from the real decoded format
+  (`INFO_OUTPUT_FORMAT_CHANGED`) instead of the compressed input format, stereo
+  is downmixed to mono (the call uplink is mono) and end-of-stream is queued
+  correctly. This removes most "playback failed" cases.
+* **Diagnostics screen.** Long-press the logo (or
+  `adb shell am start -n com.rudisec.echocast/.DebugActivity`) to see the
+  `TYPE_TELEPHONY` output, permissions, default-dialer status, audio mode,
+  output device list and a full log. Copy or save it.
+* **`ACTION_VIEW` intent** for automation (see below).
+* **ElevenLabs.** The key is sanitized (whitespace stripped) and errors are shown
+  with the real HTTP status and response body instead of failing silently.
+* Experimental `incall_music` routing toggle for Qualcomm devices that do not
+  expose `TYPE_TELEPHONY`.
+
+Build:
+
+```bash
+./gradlew zipDebug      # app/build/distributions/debug/
+./gradlew zipRelease    # app/build/distributions/release/
+```
+
+Automation (Tasker, MacroDroid, adb):
+
+```bash
+adb shell am start -a android.intent.action.VIEW \
+  -d "file:///sdcard/Download/greeting.ogg" -t "audio/ogg" \
+  -p com.rudisec.echocast --grant-read-uri-permission
+```
+
+The file is copied into the app folder, added to the soundboard and played.
+
+---
+
 **This application is intended for legitimate, creative, and entertainment purposes only.** It is not designed, intended, or endorsed for use in deceptive, fraudulent, or malicious activities in real-life situations. Users are solely responsible for complying with applicable laws and regulations, and for obtaining any necessary consent when using this software. The developers assume no liability for misuse.
 
 ---

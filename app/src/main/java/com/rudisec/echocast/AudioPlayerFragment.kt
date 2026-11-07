@@ -103,6 +103,28 @@ class AudioPlayerFragment : Fragment() {
             }
         }
     }
+
+    private val playbackStateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            val playing = intent?.getBooleanExtra(PlaybackService.EXTRA_PLAYING, false) ?: false
+            val route = intent?.getStringExtra(PlaybackService.EXTRA_ROUTE) ?: ""
+            android.util.Log.d("EchoCast", "state playing=$playing route=$route")
+            if (!playing && ::adapter.isInitialized) {
+                adapter.resetPlayingState()
+            }
+        }
+    }
+
+    private val playbackErrorReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            val msg = intent?.getStringExtra(PlaybackService.EXTRA_MESSAGE) ?: return
+            if (!isAdded) return
+            Toast.makeText(requireContext(), msg, Toast.LENGTH_LONG).show()
+            if (::adapter.isInitialized) {
+                adapter.resetPlayingState()
+            }
+        }
+    }
     
     private val audioAddedReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
@@ -133,15 +155,21 @@ class AudioPlayerFragment : Fragment() {
         val stoppedFilter = android.content.IntentFilter("com.rudisec.echocast.AUDIO_STOPPED")
         val addedFilter = android.content.IntentFilter("com.rudisec.echocast.AUDIO_ADDED")
         val shuffleFailedFilter = android.content.IntentFilter("com.rudisec.echocast.SHUFFLE_FAILED")
+        val stateFilter = android.content.IntentFilter(PlaybackService.ACTION_STATE)
+        val errorFilter = android.content.IntentFilter(PlaybackService.ACTION_ERROR)
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requireContext().registerReceiver(playbackStoppedReceiver, stoppedFilter, Context.RECEIVER_EXPORTED)
-            requireContext().registerReceiver(audioAddedReceiver, addedFilter, Context.RECEIVER_EXPORTED)
-            requireContext().registerReceiver(shuffleFailedReceiver, shuffleFailedFilter, Context.RECEIVER_EXPORTED)
+            requireContext().registerReceiver(playbackStoppedReceiver, stoppedFilter, Context.RECEIVER_NOT_EXPORTED)
+            requireContext().registerReceiver(audioAddedReceiver, addedFilter, Context.RECEIVER_NOT_EXPORTED)
+            requireContext().registerReceiver(shuffleFailedReceiver, shuffleFailedFilter, Context.RECEIVER_NOT_EXPORTED)
+            requireContext().registerReceiver(playbackStateReceiver, stateFilter, Context.RECEIVER_NOT_EXPORTED)
+            requireContext().registerReceiver(playbackErrorReceiver, errorFilter, Context.RECEIVER_NOT_EXPORTED)
         } else {
             requireContext().registerReceiver(playbackStoppedReceiver, stoppedFilter)
             requireContext().registerReceiver(audioAddedReceiver, addedFilter)
             requireContext().registerReceiver(shuffleFailedReceiver, shuffleFailedFilter)
+            requireContext().registerReceiver(playbackStateReceiver, stateFilter)
+            requireContext().registerReceiver(playbackErrorReceiver, errorFilter)
         }
         
         setupRecyclerView()
@@ -215,30 +243,16 @@ class AudioPlayerFragment : Fragment() {
         }
         
         binding.btnShufflePlayPause.setOnClickListener {
-            if (!prefs.isEnabled) {
-                Toast.makeText(requireContext(), "Enable playback first", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
             if (prefs.isShufflePaused) {
                 // Play / Resume
                 prefs.isShufflePaused = false
                 updateShuffleControls()
-                val intent = android.content.Intent(requireContext(), EchoCastInCallService::class.java).apply {
-                    action = "START_SHUFFLE"
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    requireContext().startForegroundService(intent)
-                } else {
-                    requireContext().startService(intent)
-                }
+                PlaybackService.startSequence(requireContext())
             } else {
                 // Pause
                 prefs.isShufflePaused = true
                 updateShuffleControls()
-                val intent = android.content.Intent(requireContext(), EchoCastInCallService::class.java).apply {
-                    action = "PAUSE_SHUFFLE"
-                }
-                requireContext().startService(intent)
+                PlaybackService.pause(requireContext())
             }
         }
 
@@ -279,22 +293,18 @@ class AudioPlayerFragment : Fragment() {
     }
 
     private fun playAudioItem(item: AudioItem) {
-        if (!prefs.isEnabled) {
-            Toast.makeText(requireContext(), "Enable playback first", Toast.LENGTH_SHORT).show()
-            return
-        }
-        
-        val intent = android.content.Intent(requireContext(), EchoCastInCallService::class.java).apply {
-            action = "PLAY_AUDIO"
-            putExtra("audio_id", item.id)
-            putExtra("audio_uri", item.uri.toString())
-            putExtra("play_mode", prefs.playMode)
-        }
-        
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            requireContext().startForegroundService(intent)
+        val route = if (TelephonyAudio.findTelephonyOutput(requireContext()) != null) {
+            "chiamata"
         } else {
-            requireContext().startService(intent)
+            "anteprima"
+        }
+        android.util.Log.d("EchoCast", "play '${item.name}' -> $route")
+        DebugLog.i("UI", "play '${item.name}' route=$route")
+
+        PlaybackService.play(requireContext(), item, prefs.playMode)
+
+        if (route == "anteprima") {
+            Toast.makeText(requireContext(), getString(R.string.preview_mode_toast), Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -406,6 +416,8 @@ class AudioPlayerFragment : Fragment() {
             requireContext().unregisterReceiver(playbackStoppedReceiver)
             requireContext().unregisterReceiver(audioAddedReceiver)
             requireContext().unregisterReceiver(shuffleFailedReceiver)
+            requireContext().unregisterReceiver(playbackStateReceiver)
+            requireContext().unregisterReceiver(playbackErrorReceiver)
         } catch (e: Exception) {
             // Receiver might not be registered
         }
