@@ -59,14 +59,23 @@ class PlaybackService : Service(), SingleAudioPlayer.AudioPlayerListener {
                 putExtra(EXTRA_AUDIO_NAME, item.name)
                 putExtra(EXTRA_PLAY_MODE, mode)
             }
-            context.startForegroundService(intent)
+            start(context, intent)
         }
 
         fun startSequence(context: Context) {
-            val intent = Intent(context, PlaybackService::class.java).apply {
+            start(context, Intent(context, PlaybackService::class.java).apply {
                 action = ACTION_START_SEQUENCE
+            })
+        }
+
+        /** Background-start restrictions can throw; never let that crash a caller. */
+        private fun start(context: Context, intent: Intent) {
+            try {
+                context.startForegroundService(intent)
+            } catch (e: Exception) {
+                DebugLog.e(TAG, "startForegroundService failed, trying startService", e)
+                runCatching { context.startService(intent) }
             }
-            context.startForegroundService(intent)
         }
 
         fun stop(context: Context) {
